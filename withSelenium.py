@@ -33,7 +33,7 @@ def getfileURLs(driver: webdriver.Edge, fileCollection: dict) -> dict:
         fileCollection[index] = fileURLs[idx];
     return fileCollection;
 
-def downloadFile(index: str, url: str, saveDir: str = "./Downloads") -> None:
+def downloadFile(index: str, url: str, saveDir: str) -> None:
     """
     **Description**  
     Download a single file from a given URL and save it locally.  
@@ -66,7 +66,7 @@ def downloadFile(index: str, url: str, saveDir: str = "./Downloads") -> None:
     except Exception as e:
         print(f"Failed to download {url} — error: {e}");
 
-def multiThreadDownload(fileURLs: dict, maxThreads: int = 16) -> None:
+def multiThreadDownload(fileURLs: dict, maxThreads: int = 8, saveDir: str = "./Downloads") -> None:
     """
     **Description**  
     Use multithreading to download all files in parallel from the fileURLs dict.
@@ -80,7 +80,7 @@ def multiThreadDownload(fileURLs: dict, maxThreads: int = 16) -> None:
     """
     with ThreadPoolExecutor(max_workers=maxThreads) as executor:
         futures = [
-            executor.submit(downloadFile, index, url)
+            executor.submit(downloadFile, index, url, saveDir)
             for index, url in fileURLs.items()
         ];
         for future in as_completed(futures):
@@ -117,7 +117,7 @@ def main(driver: webdriver.Edge) -> None:
             break;
         scrollTopLast = scrollTopNow;
     print(f"Totally {len(fileCollection)} files to download");
-    multiThreadDownload(fileCollection);#, maxThreads=16, saveDir="/storage/yangjianLab/wanfang/hprc_FASTA_latest");
+    multiThreadDownload(fileCollection);#, maxThreads=8, saveDir="/storage/yangjianLab/wanfang/hprc_FASTA_latest");
     driver.quit();
     
     
