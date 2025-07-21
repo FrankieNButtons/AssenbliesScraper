@@ -1,6 +1,8 @@
 import time;
 import os;
 from selenium import webdriver;
+from selenium.webdriver.chrome.service import Service;
+from selenium.webdriver.chrome.options import Options;
 from selenium.webdriver.common.by import By;
 from get_user_agent import get_user_agent_of_pc;
 from selenium.webdriver.support.wait import WebDriverWait;
@@ -132,17 +134,18 @@ def main(driver: webdriver.Edge) -> None:
     
 # Entry point of the script: configure Edge options and start crawling
 if __name__ == "__main__":
-    
-    options = webdriver.EdgeOptions();
-    # options.add_argument("--headless");
+
+    options = Options();
+    options.binary_location = "/home/yangjianLab/wanfang/chrome-linux/chrome";
+    options.add_argument("--headless");
     options.add_argument("--window-size=1920,1080");
     options.add_argument(f"user-agent={get_user_agent_of_pc()}");
     options.add_argument("disable-infobas");
     options.add_argument("--diable-blink-features");
     options.add_experimental_option("excludeSwitches", ["enable-automation"]);
     options.add_argument("--diable-blink-features=AutomationControlled");
-    
-        # 创建浏览器对象
-    driver = webdriver.Edge(options=options);
+
+    service = Service("/home/yangjianLab/wanfang/chromedriver_linux64/chromedriver");
+    driver = webdriver.Chrome(service=service, options=options);
     
     main(driver);
