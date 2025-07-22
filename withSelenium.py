@@ -109,7 +109,7 @@ def main(driver: webdriver.Edge) -> None:
         
         # Scroll
         driver.execute_script("arguments[0].scrollTop += 1500;", table);
-        time.sleep(0.01);
+        # time.sleep(0.01);
         
         # If the scroll stops
         scrollTopNow = driver.execute_script("return arguments[0].scrollTop;", table);
@@ -117,6 +117,7 @@ def main(driver: webdriver.Edge) -> None:
             break;
         scrollTopLast = scrollTopNow;
     print(f"Totally {len(fileCollection)} files to download");
+    print(fileCollection);
     multiThreadDownload(fileCollection);#, maxThreads=8, saveDir="/storage/yangjianLab/wanfang/hprc_FASTA_latest");
     driver.quit();
     

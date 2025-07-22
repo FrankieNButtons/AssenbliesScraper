@@ -118,18 +118,49 @@ def main(driver: webdriver.Edge) -> None:
         if scrollTopNow == scrollTopLast:
             break;
         scrollTopLast = scrollTopNow;
-    print(f"Totally {len(fileCollection)} files to download");
-    multiThreadDownload(fileCollection, maxThreads=8, saveDir="/storage/yangjianLab/wanfang/hprc_FASTA_latest");
+    
+    
+    
+    saveDir = "/storage/yangjianLab/wanfang/hprc_FASTA_latest";
+    # 1. Delete files smaller than 730MB
+    fileToDownload = [];
+    if os.path.exists(saveDir):
+        for filename in os.listdir(saveDir):
+            if filename.endswith(".fa.gz"):
+                filepath = os.path.join(saveDir, filename);
+                size_bytes = os.path.getsize(filepath);
+                if size_bytes <= 730 * 1024 * 1024:
+                    prefix = filename.split("_")[0];
+                    fileToDownload.append(prefix);
+                    os.remove(filepath);
+                    print(f"Deleted small file: {filename}");
+    # 2. Fetch existing prefixes
+    exist_prefixes = [];
+    for filename in os.listdir(saveDir):
+        if filename.endswith(".fa.gz"):
+            prefix = filename.split("_")[0];
+            try:
+                exist_prefixes.append(int(prefix));
+            except ValueError:
+                continue;
+    if exist_prefixes:
+        max_prefix = max(exist_prefixes);
+        # 3. Delete max_prefix-10 to max_prefix
+        for num in range(max_prefix - 10, max_prefix + 1):
+            prefix_str = str(num);
+            for fname in os.listdir(saveDir):
+                if fname.startswith(prefix_str + "_") and fname.endswith(".fa.gz"):
+                    fileToDownload.append(prefix_str);
+                    os.remove(os.path.join(saveDir, fname));
+                    print(f"Deleted file by prefix in range: {fname}");
+        # 4. Ddd non-reached prefixes to fileToDownload
+        for num in range(max_prefix, 560):
+            fileToDownload.append(str(num));
+    # 5. build fileToDownload
+    download_dict = {idx: fileCollection[idx] for idx in fileToDownload if idx in fileCollection};
+    print(f"{len(fileToDownload)} of {len(fileCollection)} files to download");
+    multiThreadDownload(download_dict, maxThreads=8, saveDir=saveDir);
     driver.quit();
-    
-    
-    
-    
-    
-    
-    
-    
-    
     
     
 # Entry point of the script: configure Edge options and start crawling
