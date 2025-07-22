@@ -1,0 +1,186 @@
+import time;
+import os;
+from selenium import webdriver;
+from selenium.webdriver.chrome.service import Service;
+from selenium.webdriver.chrome.options import Options;
+from selenium.webdriver.common.by import By;
+from get_user_agent import get_user_agent_of_pc;
+from selenium.webdriver.support.wait import WebDriverWait;
+from selenium.webdriver.support import expected_conditions as EC;
+import requests;
+from concurrent.futures import ThreadPoolExecutor, as_completed;
+from tqdm import tqdm
+
+URL = "https://data.humanpangenome.org/assemblies";
+def getfileURLs(driver: webdriver.Edge, fileCollection: dict) -> dict:
+    """
+    **Description**  
+    Locate all file rows and their corresponding download links on the page,  
+    then store them in the fileCollection dictionary.
+
+    **Params**  
+    - `driver`: the Selenium Edge driver instance  
+    - `fileCollection`: dictionary to store index-URL mappings
+
+    **Returns**  
+    - Updated fileCollection dictionary
+    """
+    
+    fileElems = WebDriverWait(driver, 10).until(EC.presence_of_all_elements_located((By.XPATH, '//tr[@class="MuiTableRow-root css-1bun0x4"]')));
+    fileIndes = [fileElem.get_attribute("data-index") for fileElem in fileElems];
+    fileURLs = WebDriverWait(driver, 10).until(EC.presence_of_all_elements_located((By.XPATH, '//tr[@class="MuiTableRow-root css-1bun0x4"]//a')));
+    fileURLs = [fileURL.get_attribute("href") for fileURL in fileURLs];
+
+    for idx, index in enumerate(fileIndes):
+        fileCollection[index] = fileURLs[idx];
+    return fileCollection;
+
+def downloadFile(index: str, url: str, saveDir: str) -> None:
+    """
+    **Description**  
+    Download a single file from a given URL and save it locally.  
+    The file will be named using its index and the original file name.
+
+    **Params**  
+    - `index`: the identifier key for the file  
+    - `url`: the file download URL  
+    - `saveDir`: the target directory to save files (default "./Downloads")
+
+    **Returns**  
+    - None
+    """
+    # 下载重试机制
+    max_retries = 10;
+    fileName = os.path.join(saveDir, f"{index}_{os.path.basename(url)}");
+    for attempt in range(1, max_retries + 1):
+        try:
+            os.makedirs(saveDir, exist_ok=True);
+            start_time = time.perf_counter();
+            headers = {"User-Agent": get_user_agent_of_pc()};
+            with requests.get(url, stream=True, timeout=30, headers=headers) as response:
+                response.raise_for_status();
+                total_size = int(response.headers.get('Content-Length', 0));
+                position = int(index) % 1000 if index.isdigit() else 0;
+                with open(fileName, "wb") as f, tqdm(total=total_size, unit='B', unit_scale=True, desc=f"Downloading {fileName}", position=position) as pbar:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk);
+                            pbar.update(len(chunk));
+            elapsed = time.perf_counter() - start_time;
+            print(f"Downloaded: {fileName} in {elapsed:.2f} seconds");
+            break;
+        except Exception as e:
+            # 删除已下载的部分并重试
+            if os.path.exists(fileName):
+                os.remove(fileName);
+                print(f"Retry {attempt}/{max_retries}: Removed partial file {fileName}");
+            if attempt == max_retries:
+                print(f"Failed to download {url} after {max_retries} attempts — error: {e}");
+            else:
+                print(f"Retry {attempt}/{max_retries} for {url} — error: {e}");
+                continue;
+
+def multiThreadDownload(fileURLs: dict, maxThreads: int = 8, saveDir: str = "./Downloads") -> None:
+    """
+    **Description**  
+    Use multithreading to download all files in parallel from the fileURLs dict.
+
+    **Params**  
+    - `fileURLs`: dictionary where key = index, value = file URL  
+    - `maxThreads`: number of threads to run in parallel (default 8)
+
+    **Returns**  
+    - None
+    """
+    with ThreadPoolExecutor(max_workers=maxThreads) as executor:
+        futures = [
+            executor.submit(downloadFile, index, url, saveDir)
+            for index, url in fileURLs.items()
+        ];
+        for future in as_completed(futures):
+            future.result();
+    
+def main(driver: webdriver.Edge) -> None:
+    """
+    **Description**  
+    Launches the target URL, scrolls through the table container to trigger all lazy-loaded rows,  
+    collects all downloadable file links, and initiates multithreaded downloading.
+
+    **Params**  
+    - `driver`: the Selenium Edge driver instance
+
+    **Returns**  
+    - None
+    """
+    fileCollection = {};
+    driver.get(URL);
+    
+    
+    table = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, '//div[@class="MuiTableContainer-root css-1p6ntod"]')));
+    scrollTopLast = -1;
+    while True:
+        getfileURLs(driver, fileCollection);
+        
+        # Scroll
+        driver.execute_script("arguments[0].scrollTop += 1500;", table);
+        # time.sleep(0.01);
+        
+        # If the scroll stops
+        scrollTopNow = driver.execute_script("return arguments[0].scrollTop;", table);
+        if scrollTopNow == scrollTopLast:
+            break;
+        scrollTopLast = scrollTopNow;
+    
+    
+    
+    saveDir = "/storage/yangjianLab/wanfang/hprc_FASTA_latest";
+    # 1. Delete files smaller than 730MB
+    fileToDownload = []
+    if os.path.exists(saveDir):
+        for filename in os.listdir(saveDir):
+            if filename.endswith(".fa.gz"):
+                filepath = os.path.join(saveDir, filename)
+                size_bytes = os.path.getsize(filepath)
+                if size_bytes <= 730 * 1024 * 1024:
+                    prefix = filename.split("_")[0]
+                    fileToDownload.append(prefix)
+                    os.remove(filepath)
+                    print(f"Deleted small file: {filename}")
+    # 2. Identify missing prefixes 0~559 for re-download
+    existing_prefixes = set()
+    if os.path.exists(saveDir):
+        for filename in os.listdir(saveDir):
+            if filename.endswith(".fa.gz"):
+                prefix = filename.split("_")[0]
+                existing_prefixes.add(prefix)
+    for num in range(0, 560):
+        prefix = str(num)
+        if prefix not in existing_prefixes:
+            fileToDownload.append(prefix)
+    # Remove duplicates and sort
+    fileToDownload = sorted(set(fileToDownload), key=lambda x: int(x))
+    print(f"{len(fileToDownload)} of {len(fileCollection)} files to download")
+    download_dict = {idx: fileCollection[idx] for idx in fileToDownload if idx in fileCollection}
+    print(f"All files to be redownload: {fileToDownload}")
+    # 3. Download missing files with retry
+    multiThreadDownload(download_dict, maxThreads=8, saveDir=saveDir)
+    driver.quit()
+    
+    
+# Entry point of the script: configure Edge options and start crawling
+if __name__ == "__main__":
+
+    options = Options();
+    options.binary_location = "/home/yangjianLab/wanfang/chrome-linux/chrome";
+    options.add_argument("--headless");
+    options.add_argument("--window-size=1920,1080");
+    options.add_argument(f"user-agent={get_user_agent_of_pc()}");
+    options.add_argument("disable-infobas");
+    options.add_argument("--diable-blink-features");
+    options.add_experimental_option("excludeSwitches", ["enable-automation"]);
+    options.add_argument("--diable-blink-features=AutomationControlled");
+
+    service = Service("/home/yangjianLab/wanfang/chromedriver_linux64/chromedriver");
+    driver = webdriver.Chrome(service=service, options=options);
+    
+    main(driver);
