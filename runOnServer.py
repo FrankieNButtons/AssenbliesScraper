@@ -49,24 +49,36 @@ def downloadFile(index: str, url: str, saveDir: str) -> None:
     **Returns**  
     - None
     """
-    try:
-        os.makedirs(saveDir, exist_ok=True);
-        fileName = os.path.join(saveDir, f"{index}_{os.path.basename(url)}");
-        start_time = time.perf_counter()
-        headers = {"User-Agent": get_user_agent_of_pc()};
-        with requests.get(url, stream=True, timeout=30, headers=headers) as response:
-            response.raise_for_status()
-            total_size = int(response.headers.get('Content-Length', 0))
-            position = int(index) % 1000 if index.isdigit() else 0
-            with open(fileName, "wb") as f, tqdm(total=total_size, unit='B', unit_scale=True, desc=f"Downloading {fileName}", position=position) as pbar:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk);
-                        pbar.update(len(chunk))
-        elapsed = time.perf_counter() - start_time
-        print(f"Downloaded: {fileName} in {elapsed:.2f} seconds");
-    except Exception as e:
-        print(f"Failed to download {url} — error: {e}");
+    # 下载重试机制
+    max_retries = 5;
+    fileName = os.path.join(saveDir, f"{index}_{os.path.basename(url)}");
+    for attempt in range(1, max_retries + 1):
+        try:
+            os.makedirs(saveDir, exist_ok=True);
+            start_time = time.perf_counter();
+            headers = {"User-Agent": get_user_agent_of_pc()};
+            with requests.get(url, stream=True, timeout=30, headers=headers) as response:
+                response.raise_for_status();
+                total_size = int(response.headers.get('Content-Length', 0));
+                position = int(index) % 1000 if index.isdigit() else 0;
+                with open(fileName, "wb") as f, tqdm(total=total_size, unit='B', unit_scale=True, desc=f"Downloading {fileName}", position=position) as pbar:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk);
+                            pbar.update(len(chunk));
+            elapsed = time.perf_counter() - start_time;
+            print(f"Downloaded: {fileName} in {elapsed:.2f} seconds");
+            break;
+        except Exception as e:
+            # 删除已下载的部分并重试
+            if os.path.exists(fileName):
+                os.remove(fileName);
+                print(f"Retry {attempt}/{max_retries}: Removed partial file {fileName}");
+            if attempt == max_retries:
+                print(f"Failed to download {url} after {max_retries} attempts — error: {e}");
+            else:
+                print(f"Retry {attempt}/{max_retries} for {url} — error: {e}");
+                continue;
 
 def multiThreadDownload(fileURLs: dict, maxThreads: int = 8, saveDir: str = "./Downloads") -> None:
     """
